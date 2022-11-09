@@ -1,4 +1,4 @@
-const axios = require("axios").default;
+const axios = require("axios");
 const puppeteer = require("puppeteer-core");
 
 const BASE_URL = "http://localhost:35353";
@@ -19,7 +19,7 @@ async function open(profile) {
       const contexts = browser.browserContexts();
       const context = contexts[0];
       const pages = await context.pages();
-      const page = pages[0];
+      const page = pages[0] ?? (await browser.newPage());
 
       // tra ve thong tin profile, browser, page ma puppeteer connect
       return { profile, browser, page };
@@ -37,38 +37,44 @@ async function open(profile) {
   }
 }
 
-(async () => {
+async function runScript(profile) {
+  const result = await open(profile);
+
+  if (!result) {
+    return;
+  }
+
+  try {
+    const { page, browser } = result;
+    await page.goto("https://whoer.net/");
+    await new Promise((r) => setTimeout(r, 6000));
+    await browser.close();
+    console.log(`Profile ${profile?.id} go to whoer.net success`);
+  } catch (e) {
+    console.error(`[Profile ${profile.id}] `, e);
+  }
+}
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms))
+}
+
+async function main() {
   // Lay danh sach profile tu api
   const res = await axios.get(
     `${BASE_URL}/profiles?sort=date_created&sort_type=asc&page=0&pageSize=10`
   );
   console.log("response: ", res.data);
   const profiles = res.data.docs;
-  const browsers = {};
 
-  // Mo lan luot tung profile, luu thong tin vao `browsers` tranh trung port
   for (const profile of profiles) {
-    browsers[profile.id] = await open(profile);
-    await new Promise((r) => setTimeout(r, 1000));
+    // Do not await here to run in parallel
+    runScript(profile);
+    await sleep(1000);
   }
+}
 
-  // Chay dong thoi tat ca cac profile trong `browsers`
-  await Promise.all(
-    Object.values(browsers)
-      .filter((e) => e)
-      .map(async ({ profile, browser, page }) => {
-        console.log(`Profile ${profile?.id} go to ...`);
-        await page.goto("https://whoer.net/");
-        await new Promise((r) => setTimeout(r, 6000));
-        await browser.close();
-        console.log(`Profile ${profile?.id} go to whoer.net success`);
-      })
-  );
-})().catch((e) => {
+main().catch((e) => {
   process.exitCode = 1;
-  console.error("Error: ", e.message);
-
-  if (axios.isAxiosError(e) && e.response?.data) {
-    console.log("Response", e.response.data);
-  }
+  console.error("Error while running scripts: ", e.message);
 });
